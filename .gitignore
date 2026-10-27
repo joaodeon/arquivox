@@ -1,0 +1,21 @@
+# Dependências e artefatos de build
+app/node_modules
+app/dist
+app/dist-ssr
+app/src-tauri/target
+app/src-tauri/gen
+
+# Claude Code (estado local de sessão)
+.claude
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor / SO
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+Thumbs.db
+*.local

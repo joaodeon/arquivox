@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- Fundo: quadrado arredondado roxo sólido -->
+  <rect x="64" y="64" width="896" height="896" rx="220" fill="#9400D3"/>
+
+  <!-- Seta de troca (conversão), branca, centralizada -->
+  <g fill="#ffffff">
+    <polygon points="260,405 620,405 620,370 740,440 620,510 620,475 260,475"/>
+    <polygon points="740,549 380,549 380,514 260,584 380,654 380,619 740,619"/>
+  </g>
+</svg>
