@@ -97,6 +97,15 @@ fn wheel_dismiss(app: tauri::AppHandle) {
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            // Uma segunda tentativa de abrir o app só traz a janela
+            // existente pra frente, em vez de criar outra instância
+            // (o que duplicaria o ícone da bandeja e os hooks globais).
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
