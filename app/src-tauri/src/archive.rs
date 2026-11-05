@@ -10,21 +10,24 @@ use anyhow::{anyhow, Result};
 use zip::write::SimpleFileOptions;
 use zip::{CompressionMethod, ZipWriter};
 
-fn archive_base_name(input_paths: &[PathBuf]) -> String {
-    if input_paths.len() == 1 {
-        input_paths[0]
-            .file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("arquivo")
-            .to_string()
-    } else {
-        input_paths[0]
-            .parent()
-            .and_then(|p| p.file_name())
-            .and_then(|n| n.to_str())
-            .unwrap_or("arquivos")
-            .to_string()
+/// Nome do .zip gerado: "Compactado_AAAA-MM-DD_HH-MM-SS.zip", baseado na
+/// data/hora local no momento da compactação. Como pode haver qualquer
+/// quantidade de arquivos de origem com nomes diferentes, não existe um
+/// "nome do arquivo" óbvio para herdar — a data/hora é sempre única,
+/// legível e ordena os arquivos cronologicamente na pasta. Em caso de
+/// colisão (duas compactações no mesmo segundo), acrescenta um sufixo
+/// numérico.
+fn unique_archive_path(output_dir: &str) -> PathBuf {
+    let timestamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S");
+    let base = format!("Compactado_{timestamp}");
+
+    let mut candidate = Path::new(output_dir).join(format!("{base}.zip"));
+    let mut counter = 1;
+    while candidate.exists() {
+        candidate = Path::new(output_dir).join(format!("{base} ({counter}).zip"));
+        counter += 1;
     }
+    candidate
 }
 
 /// Compacta um ou mais arquivos em um único .zip (compressão padrão).
@@ -46,8 +49,7 @@ pub fn zip_files(input_paths: &[String], output_dir: &str) -> Result<Vec<String>
         }
     }
 
-    let base = archive_base_name(&paths);
-    let output_path = Path::new(output_dir).join(format!("{base}-zip.zip"));
+    let output_path = unique_archive_path(output_dir);
 
     let file = File::create(&output_path).map_err(|e| anyhow!("Falha ao criar ZIP: {e}"))?;
     let mut writer = ZipWriter::new(file);
@@ -98,15 +100,23 @@ pub fn zip_files(input_paths: &[String], output_dir: &str) -> Result<Vec<String>
 mod tests {
     use super::*;
 
-    fn make_test_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join("arquivox_archive_test");
+    // Cada teste usa sua própria subpasta. Os testes rodam em paralelo por
+    // padrão, e como o nome do .zip agora tem só precisão de segundo
+    // (data/hora), testes compartilhando uma pasta podiam gerar o mesmo
+    // nome candidato ao mesmo tempo e colidir — um problema só do arranjo
+    // de testes, não da lógica de produção (duas chamadas sequenciais no
+    // mesmo processo, como o usuário realmente faz, já são protegidas
+    // pelo loop de `unique_archive_path`).
+    fn make_test_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("arquivox_archive_test_{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
 
     #[test]
     fn zipa_varios_arquivos_em_um_so() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("varios");
         let a = dir.join("a.txt");
         let b = dir.join("b.txt");
         std::fs::write(&a, b"conteudo a").unwrap();
@@ -128,18 +138,34 @@ mod tests {
 
     #[test]
     fn zipa_um_unico_arquivo() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("unico");
         let a = dir.join("solo.txt");
         std::fs::write(&a, b"conteudo").unwrap();
 
         let outputs = zip_files(&[a.to_str().unwrap().to_string()], dir.to_str().unwrap()).unwrap();
         assert_eq!(outputs.len(), 1);
-        assert!(outputs[0].ends_with("solo-zip.zip"));
+        let name = Path::new(&outputs[0]).file_name().unwrap().to_str().unwrap();
+        assert!(name.starts_with("Compactado_"), "nome inesperado: {name}");
+        assert!(name.ends_with(".zip"));
+    }
+
+    #[test]
+    fn evita_sobrescrever_zip_existente_no_mesmo_segundo() {
+        let dir = make_test_dir("colisao");
+        let a = dir.join("x.txt");
+        std::fs::write(&a, b"conteudo").unwrap();
+
+        let first = zip_files(&[a.to_str().unwrap().to_string()], dir.to_str().unwrap()).unwrap();
+        let second = zip_files(&[a.to_str().unwrap().to_string()], dir.to_str().unwrap()).unwrap();
+
+        assert_ne!(first[0], second[0], "a segunda compactação não pode sobrescrever a primeira");
+        assert!(Path::new(&first[0]).exists());
+        assert!(Path::new(&second[0]).exists());
     }
 
     #[test]
     fn renomeia_arquivos_duplicados_dentro_do_zip() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("duplicados");
         let sub1 = dir.join("sub1");
         let sub2 = dir.join("sub2");
         std::fs::create_dir_all(&sub1).unwrap();
