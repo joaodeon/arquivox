@@ -30,12 +30,22 @@ const TOOLS_SEGMENTS: WheelSegment[] = [
   { id: "strip", label: "Sem EXIF" },
 ];
 
+// Mostrada no lugar de TOOLS_SEGMENTS quando o que foi arrastado é mais de
+// um arquivo, ou um único arquivo que não é imagem — já que girar/espelhar/
+// remover EXIF só fazem sentido para uma imagem isolada.
+const ARCHIVE_SEGMENTS: WheelSegment[] = [
+  { id: "zip_archive", label: "ZIP" },
+  { id: "compact_archive", label: "Compactar" },
+];
+
 const TOOL_ACTION_LABELS: Record<string, string> = {
   compress: "Comprimindo",
   rotate_cw: "Girando",
   rotate_ccw: "Girando",
   flip: "Espelhando",
   strip: "Removendo metadados",
+  zip_archive: "Compactando (ZIP)",
+  compact_archive: "Compactando",
 };
 
 type Phase = "picking" | "converting" | "done" | "error";
@@ -49,18 +59,44 @@ function classifyDomain(path: string): Domain {
   return null;
 }
 
-function labelFor(domain: Domain, mode: Mode, id: string): string {
+function isSingleImage(paths: string[]): boolean {
+  return paths.length === 1 && classifyDomain(paths[0]) === "image";
+}
+
+function labelFor(mode: Mode, isArchiveCase: boolean, domain: Domain, id: string): string {
+  if (mode === "tools" && isArchiveCase) {
+    return ARCHIVE_SEGMENTS.find((s) => s.id === id)?.label ?? id;
+  }
   if (mode === "tools") return TOOLS_SEGMENTS.find((s) => s.id === id)?.label ?? id;
   if (domain === "table") return TABLE_FORMAT_LABELS[id] ?? id.toUpperCase();
   return IMAGE_FORMAT_LABELS[id] ?? id.toUpperCase();
 }
 
-function StatusBadge({ phase, domain, mode, actionId }: { phase: Phase; domain: Domain; mode: Mode; actionId: string | null }) {
-  const label = actionId ? labelFor(domain, mode, actionId) : "";
+function StatusBadge({
+  phase,
+  mode,
+  isArchiveCase,
+  domain,
+  actionId,
+  resultCount,
+}: {
+  phase: Phase;
+  mode: Mode;
+  isArchiveCase: boolean;
+  domain: Domain;
+  actionId: string | null;
+  resultCount: number;
+}) {
+  const label = actionId ? labelFor(mode, isArchiveCase, domain, actionId) : "";
+  const countSuffix = resultCount > 1 ? ` (${resultCount} arquivos)` : "";
   const doneLabel =
-    mode === "format" ? `Convertido para ${label}` : TOOL_ACTION_LABELS[actionId ?? ""] ?? "Pronto";
+    mode === "format"
+      ? `Convertido para ${label}`
+      : `${TOOL_ACTION_LABELS[actionId ?? ""]?.replace("ando", "ado").replace("indo", "ido") ?? "Pronto"}${countSuffix}`;
   const progressLabel =
-    mode === "format" ? `Convertendo para ${label}...` : `${TOOL_ACTION_LABELS[actionId ?? ""] ?? "Processando"}...`;
+    mode === "format"
+      ? `Convertendo para ${label}...`
+      : `${TOOL_ACTION_LABELS[actionId ?? ""] ?? "Processando"}...`;
 
   return (
     <div
@@ -98,20 +134,26 @@ function StatusBadge({ phase, domain, mode, actionId }: { phase: Phase; domain: 
 }
 
 function WheelApp() {
-  const [domain, setDomain] = useState<Domain>(null);
+  const [formatSegments, setFormatSegments] = useState<WheelSegment[]>([]);
+  const [tableSegments, setTableSegments] = useState<WheelSegment[]>([]);
   const [mode, setMode] = useState<Mode>("format");
   const [highlighted, setHighlighted] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("picking");
   const [lastAction, setLastAction] = useState<string | null>(null);
+  const [domain, setDomain] = useState<Domain>(null);
+  const [archiveCase, setArchiveCase] = useState(false);
+  const [resultCount, setResultCount] = useState(0);
 
   const highlightRef = useRef<string | null>(null);
   const modeRef = useRef<Mode>("format");
   const domainRef = useRef<Domain>(null);
+  const archiveCaseRef = useRef(false);
+  const pathsRef = useRef<string[]>([]);
   const imageSegmentsRef = useRef<WheelSegment[]>([]);
   const tableSegmentsRef = useRef<WheelSegment[]>([]);
 
-  function segmentsFor(dom: Domain, md: Mode): WheelSegment[] {
-    if (md === "tools") return dom === "image" ? TOOLS_SEGMENTS : [];
+  function segmentsFor(dom: Domain, md: Mode, isArchive: boolean): WheelSegment[] {
+    if (md === "tools") return isArchive ? ARCHIVE_SEGMENTS : TOOLS_SEGMENTS;
     if (dom === "table") return tableSegmentsRef.current;
     if (dom === "image") return imageSegmentsRef.current;
     return [];
@@ -119,10 +161,14 @@ function WheelApp() {
 
   useEffect(() => {
     invoke<string[]>("supported_image_formats").then((fmts) => {
-      imageSegmentsRef.current = fmts.map((f) => ({ id: f, label: IMAGE_FORMAT_LABELS[f] ?? f.toUpperCase() }));
+      const segs = fmts.map((f) => ({ id: f, label: IMAGE_FORMAT_LABELS[f] ?? f.toUpperCase() }));
+      imageSegmentsRef.current = segs;
+      setFormatSegments(segs);
     });
     invoke<string[]>("supported_table_formats").then((fmts) => {
-      tableSegmentsRef.current = fmts.map((f) => ({ id: f, label: TABLE_FORMAT_LABELS[f] ?? f.toUpperCase() }));
+      const segs = fmts.map((f) => ({ id: f, label: TABLE_FORMAT_LABELS[f] ?? f.toUpperCase() }));
+      tableSegmentsRef.current = segs;
+      setTableSegments(segs);
     });
 
     const scale = window.devicePixelRatio || 1;
@@ -141,13 +187,20 @@ function WheelApp() {
         const payload = event.payload;
 
         if (payload.type === "enter") {
-          const dom = payload.paths[0] ? classifyDomain(payload.paths[0]) : null;
+          const paths = payload.paths ?? [];
+          pathsRef.current = paths;
+          const singleImage = isSingleImage(paths);
+          const isArchive = !singleImage;
+          archiveCaseRef.current = isArchive;
+          setArchiveCase(isArchive);
+
+          const dom = singleImage ? "image" : paths[0] ? classifyDomain(paths[0]) : null;
           domainRef.current = dom;
           setDomain(dom);
         }
 
         if (payload.type === "enter" || payload.type === "over") {
-          const activeSegments = segmentsFor(domainRef.current, modeRef.current);
+          const activeSegments = segmentsFor(domainRef.current, modeRef.current, archiveCaseRef.current);
           const cx = window.innerWidth / 2;
           const cy = window.innerHeight / 2;
           const dx = payload.position.x / scale - cx;
@@ -160,9 +213,9 @@ function WheelApp() {
           highlightRef.current = null;
           setHighlighted(null);
         } else if (payload.type === "drop") {
-          const path = payload.paths[0];
+          const paths = payload.paths ?? pathsRef.current;
           const chosen = highlightRef.current;
-          handleDrop(path, chosen, modeRef.current, domainRef.current);
+          handleDrop(paths, chosen, modeRef.current, domainRef.current, archiveCaseRef.current);
         }
       })
       .then((fn) => {
@@ -175,40 +228,56 @@ function WheelApp() {
     };
   }, []);
 
-  async function handleDrop(path: string | undefined, chosenId: string | null, activeMode: Mode, activeDomain: Domain) {
-    if (!path || !chosenId || !activeDomain) {
+  async function handleDrop(
+    paths: string[],
+    chosenId: string | null,
+    activeMode: Mode,
+    activeDomain: Domain,
+    isArchive: boolean,
+  ) {
+    const firstPath = paths[0];
+    if (!firstPath || !chosenId) {
       dismissSoon(0);
       return;
     }
 
     setLastAction(chosenId);
     setPhase("converting");
+    setResultCount(0);
 
     let ok = true;
+    let count = 1;
     try {
-      const dir = await invoke<string>("default_output_dir", { inputPath: path });
+      const dir = await invoke<string>("default_output_dir", { inputPath: firstPath });
 
-      if (activeMode === "format" && activeDomain === "table") {
-        await invoke<string>("convert_table", { inputPath: path, outputDir: dir, targetFormat: chosenId });
+      if (activeMode === "tools" && isArchive && chosenId === "zip_archive") {
+        const outputs = await invoke<string[]>("zip_files", { inputPaths: paths, outputDir: dir });
+        count = outputs.length;
+      } else if (activeMode === "tools" && isArchive && chosenId === "compact_archive") {
+        const outputs = await invoke<string[]>("compact_files", { inputPaths: paths, outputDir: dir });
+        count = outputs.length;
+      } else if (activeMode === "format" && activeDomain === "table") {
+        await invoke<string>("convert_table", { inputPath: firstPath, outputDir: dir, targetFormat: chosenId });
       } else if (activeMode === "format") {
-        await invoke<string>("convert_image", { inputPath: path, outputDir: dir, targetFormat: chosenId });
+        await invoke<string>("convert_image", { inputPath: firstPath, outputDir: dir, targetFormat: chosenId });
       } else if (chosenId === "compress") {
-        await invoke<string>("compress_image", { inputPath: path, outputDir: dir });
+        await invoke<string>("compress_image", { inputPath: firstPath, outputDir: dir });
       } else if (chosenId === "rotate_cw" || chosenId === "rotate_ccw") {
         await invoke<string>("rotate_image", {
-          inputPath: path,
+          inputPath: firstPath,
           outputDir: dir,
           clockwise: chosenId === "rotate_cw",
         });
       } else if (chosenId === "flip") {
-        await invoke<string>("flip_image", { inputPath: path, outputDir: dir });
+        await invoke<string>("flip_image", { inputPath: firstPath, outputDir: dir });
       } else if (chosenId === "strip") {
-        await invoke<string>("strip_metadata", { inputPath: path, outputDir: dir });
+        await invoke<string>("strip_metadata", { inputPath: firstPath, outputDir: dir });
       }
     } catch {
       ok = false;
     }
 
+    setResultCount(count);
     setPhase(ok ? "done" : "error");
     dismissSoon(ok ? 1100 : 1600);
   }
@@ -220,25 +289,38 @@ function WheelApp() {
       highlightRef.current = null;
       setPhase("picking");
       setLastAction(null);
+      setResultCount(0);
+      pathsRef.current = [];
       domainRef.current = null;
       setDomain(null);
+      archiveCaseRef.current = false;
+      setArchiveCase(false);
       modeRef.current = "format";
       setMode("format");
     }, delayMs);
   }
 
-  const activeSegments = segmentsFor(domain, mode);
+  void formatSegments;
+  void tableSegments;
+  const activeSegments = segmentsFor(domain, mode, archiveCase);
 
   return (
     <div className="w-screen h-screen flex items-center justify-center bg-transparent select-none">
       {phase !== "picking" ? (
-        <StatusBadge phase={phase} domain={domain} mode={mode} actionId={lastAction} />
+        <StatusBadge
+          phase={phase}
+          mode={mode}
+          isArchiveCase={archiveCase}
+          domain={domain}
+          actionId={lastAction}
+          resultCount={resultCount}
+        />
       ) : (
         activeSegments.length > 0 && (
           <RadialWheel
             segments={activeSegments}
             highlightedId={highlighted}
-            centerLabel={highlighted ? labelFor(domain, mode, highlighted) : "solte aqui"}
+            centerLabel={highlighted ? labelFor(mode, archiveCase, domain, highlighted) : "solte aqui"}
           />
         )
       )}

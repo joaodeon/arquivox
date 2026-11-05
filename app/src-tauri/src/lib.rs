@@ -1,3 +1,4 @@
+mod archive;
 mod image_convert;
 mod image_tools;
 mod table_convert;
@@ -42,6 +43,29 @@ fn flip_image(input_path: String, output_dir: String) -> Result<String, String> 
 #[tauri::command]
 fn strip_metadata(input_path: String, output_dir: String) -> Result<String, String> {
     finish(image_tools::strip_metadata(&input_path, &output_dir))
+}
+
+/// Mesma ideia de `finish`, para operações que produzem mais de um
+/// arquivo de saída (compactar várias imagens de uma vez, por exemplo).
+fn finish_many(result: anyhow::Result<Vec<String>>) -> Result<Vec<String>, String> {
+    let paths = result.map_err(|e| e.to_string())?;
+
+    #[cfg(windows)]
+    for path in &paths {
+        notify_shell_file_created(path);
+    }
+
+    Ok(paths)
+}
+
+#[tauri::command]
+fn zip_files(input_paths: Vec<String>, output_dir: String) -> Result<Vec<String>, String> {
+    finish_many(archive::zip_files(&input_paths, &output_dir))
+}
+
+#[tauri::command]
+fn compact_files(input_paths: Vec<String>, output_dir: String) -> Result<Vec<String>, String> {
+    finish_many(archive::compact_files(&input_paths, &output_dir))
 }
 
 /// Avisa o Shell do Windows que um arquivo novo foi criado. Sem isso,
@@ -120,6 +144,8 @@ pub fn run() {
             supported_image_formats,
             convert_table,
             supported_table_formats,
+            zip_files,
+            compact_files,
             default_output_dir,
             wheel_dismiss
         ])
