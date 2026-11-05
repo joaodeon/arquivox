@@ -1,18 +1,20 @@
 //! Observador global (apenas Windows). A janela oculta da roda radial
-//! acompanha o cursor SOMENTE enquanto Shift ou Ctrl está fisicamente
-//! pressionado; o resto do tempo fica estacionada fora de qualquer monitor.
-//! Quando ela está "no ar" e o usuário arrasta um arquivo por cima, o
-//! próprio mecanismo nativo de drag-and-drop do Windows (OLE) entrega o
-//! arrasto para ela normalmente — reaproveitando a mesma lógica usada
-//! dentro do app (módulo 2).
+//! acompanha o cursor SOMENTE enquanto o botão esquerdo do mouse está
+//! pressionado E (Shift ou Ctrl) também está — ou seja, só durante um
+//! clique-e-arrasto real com o modificador junto, nunca por soltar o
+//! modificador sozinho depois de só clicar num arquivo. O resto do tempo a
+//! roda fica estacionada fora de qualquer monitor. Quando ela está "no ar"
+//! e o usuário arrasta um arquivo por cima, o próprio mecanismo nativo de
+//! drag-and-drop do Windows (OLE) entrega o arrasto para ela normalmente —
+//! reaproveitando a mesma lógica usada dentro do app (módulo 2).
 //!
-//! O estado das teclas é obtido por CONSULTA direta (`GetAsyncKeyState`) a
-//! cada ciclo, em vez de hooks de teclado baseados em evento. Hooks de
-//! baixo nível podem perder mensagens de tecla solta — isso é especialmente
-//! comum durante um drag-and-drop do Windows, que usa Ctrl/Shift
-//! internamente para alternar entre copiar/mover, e isso deixava nosso
-//! estado interno "travado" como pressionado mesmo depois da tecla ser
-//! solta de verdade. Consultar o estado real a cada ciclo nunca fica
+//! O estado do botão do mouse e das teclas é obtido por CONSULTA direta
+//! (`GetAsyncKeyState`) a cada ciclo, em vez de hooks baseados em evento.
+//! Hooks de baixo nível podem perder mensagens de tecla solta — isso é
+//! especialmente comum durante um drag-and-drop do Windows, que usa
+//! Ctrl/Shift internamente para alternar entre copiar/mover, e isso deixava
+//! nosso estado interno "travado" como pressionado mesmo depois da tecla
+//! ser solta de verdade. Consultar o estado real a cada ciclo nunca fica
 //! dessincronizado, porque não depende de nenhuma notificação chegar.
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -20,7 +22,9 @@ use std::sync::OnceLock;
 
 use tauri::{AppHandle, Emitter, Manager, PhysicalPosition};
 use windows::Win32::Foundation::{HWND, POINT};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_CONTROL, VK_SHIFT};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetAsyncKeyState, VK_CONTROL, VK_LBUTTON, VK_SHIFT,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetWindowLongPtrW, SetWindowLongPtrW, SetWindowPos, GWL_EXSTYLE,
     SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WS_EX_TRANSPARENT,
@@ -44,6 +48,10 @@ fn shift_is_down() -> bool {
 
 fn ctrl_is_down() -> bool {
     key_is_down(VK_CONTROL.0 as i32)
+}
+
+fn left_mouse_is_down() -> bool {
+    key_is_down(VK_LBUTTON.0 as i32)
 }
 
 fn cursor_pos() -> (i32, i32) {
@@ -75,11 +83,13 @@ fn poller_thread() {
 
         let shift = shift_is_down();
         let ctrl = ctrl_is_down();
+        let dragging = left_mouse_is_down();
 
-        if shift || ctrl {
-            // Só ancora UMA VEZ por "sessão" de modificador pressionado —
-            // no ponto onde o cursor estava quando a tecla foi apertada.
-            // Depois disso a janela fica fixa ali até soltar a tecla,
+        if dragging && (shift || ctrl) {
+            // Só ancora UMA VEZ por "sessão" de clique-e-arrasto com
+            // modificador — no ponto onde o cursor estava quando as duas
+            // condições ficaram verdadeiras juntas. Depois disso a janela
+            // fica fixa ali até soltar o botão do mouse ou a tecla,
             // permitindo o usuário mover o cursor para escolher uma fatia.
             if !ANCHORED.swap(true, Ordering::Relaxed) {
                 let (x, y) = cursor_pos();
