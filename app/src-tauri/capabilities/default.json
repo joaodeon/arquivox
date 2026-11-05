@@ -5,7 +5,6 @@
   "windows": ["main", "wheel"],
   "permissions": [
     "core:default",
-    "opener:default",
     "dialog:default"
   ]
 }

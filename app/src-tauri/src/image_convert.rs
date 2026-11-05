@@ -74,7 +74,25 @@ pub(crate) fn load_source_image(input_path: &Path) -> Result<DynamicImage> {
         ));
     }
 
-    image::open(input_path).map_err(|e| anyhow!("Falha ao abrir a imagem de origem: {e}"))
+    // Limites explícitos de decodificação: sem isso, um arquivo de imagem
+    // malformado/malicioso com dimensões absurdas declaradas no cabeçalho
+    // pode fazer o decodificador tentar alocar memória suficiente para
+    // travar o processo antes mesmo de validar os dados reais (um "clássico"
+    // vetor de negação de serviço em decodificadores de imagem). Os limites
+    // abaixo cobrem com folga qualquer foto ou scan legítimo.
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(20_000);
+    limits.max_image_height = Some(20_000);
+    limits.max_alloc = Some(512 * 1024 * 1024);
+
+    let mut reader = image::ImageReader::open(input_path)
+        .map_err(|e| anyhow!("Falha ao abrir a imagem de origem: {e}"))?;
+    reader.limits(limits);
+    reader
+        .with_guessed_format()
+        .map_err(|e| anyhow!("Falha ao identificar o formato da imagem: {e}"))?
+        .decode()
+        .map_err(|e| anyhow!("Falha ao decodificar a imagem de origem: {e}"))
 }
 
 fn load_svg_as_image(input_path: &Path) -> Result<DynamicImage> {

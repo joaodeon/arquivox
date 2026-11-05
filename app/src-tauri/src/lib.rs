@@ -106,7 +106,6 @@ pub fn run() {
                 let _ = w.set_focus();
             }
         }))
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             convert_image,
@@ -130,17 +129,8 @@ pub fn run() {
                 tauri::menu::MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
             let menu = tauri::menu::Menu::with_items(app, &[&show_item, &quit_item])?;
 
-            let tray_icon = {
-                let bytes = include_bytes!("../icons/tray-default.png");
-                let decoded = image::load_from_memory(bytes)
-                    .expect("ícone da bandeja embutido inválido")
-                    .to_rgba8();
-                let (width, height) = decoded.dimensions();
-                tauri::image::Image::new_owned(decoded.into_raw(), width, height)
-            };
-
             let _tray = tauri::tray::TrayIconBuilder::new()
-                .icon(tray_icon)
+                .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .tooltip("arquivoX")
                 .on_menu_event(|app, event| match event.id.as_ref() {

@@ -97,13 +97,31 @@ fn cell_to_string(cell: &Data) -> String {
     }
 }
 
+/// Neutraliza injeção de fórmula (CSV Injection): se a célula começa com um
+/// caractere que o Excel interpreta como início de fórmula ao reabrir um
+/// CSV (=, +, -, @, tab, CR), prefixa com um apóstrofo. O Excel exibe o
+/// valor como texto literal nesse caso, sem avaliar nada. Isso não afeta o
+/// caminho XLSX (que usa células tipadas e nunca sofre esse problema), só o
+/// CSV, que não tem metadado de tipo e deixa a interpretação a cargo de
+/// quem o abre depois — relevante aqui porque a planilha de origem pode vir
+/// de um sistema externo não confiável.
+fn neutralize_formula(value: &str) -> String {
+    match value.chars().next() {
+        Some('=') | Some('+') | Some('-') | Some('@') | Some('\t') | Some('\r') => {
+            format!("'{value}")
+        }
+        _ => value.to_string(),
+    }
+}
+
 fn save_as_csv(rows: &[Vec<String>], output_path: &Path) -> Result<()> {
     let mut writer = WriterBuilder::new()
         .from_path(output_path)
         .map_err(|e| anyhow!("Falha ao criar CSV: {e}"))?;
     for row in rows {
+        let safe_row: Vec<String> = row.iter().map(|v| neutralize_formula(v)).collect();
         writer
-            .write_record(row)
+            .write_record(&safe_row)
             .map_err(|e| anyhow!("Falha ao escrever linha: {e}"))?;
     }
     writer
@@ -192,5 +210,26 @@ mod tests {
         assert!(content.contains("nome"));
         assert!(content.contains("Ana"));
         assert!(content.contains("30"));
+    }
+
+    #[test]
+    fn neutraliza_formula_em_celula_vinda_de_xlsx_malicioso() {
+        let dir = make_test_dir();
+        let xlsx_path = dir.join("malicioso.xlsx");
+        let mut wb = rust_xlsxwriter::Workbook::new();
+        let sheet = wb.add_worksheet();
+        sheet.write_string(0, 0, "=cmd|'/c calc'!A0").unwrap();
+        sheet.write_string(0, 1, "valor normal").unwrap();
+        wb.save(&xlsx_path).unwrap();
+
+        let csv_out =
+            convert_table(xlsx_path.to_str().unwrap(), dir.to_str().unwrap(), "csv").unwrap();
+        let content = std::fs::read_to_string(&csv_out).unwrap();
+
+        // A célula perigosa deve ter sido neutralizada com um apóstrofo na
+        // frente, não gravada crua (o que faria o Excel avaliar como
+        // fórmula ao reabrir o CSV).
+        assert!(content.contains("'=cmd"), "fórmula não foi neutralizada: {content}");
+        assert!(content.contains("valor normal"));
     }
 }
