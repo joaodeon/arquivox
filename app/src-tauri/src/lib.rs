@@ -107,6 +107,10 @@ pub fn run() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_autostart::init(
+            tauri_plugin_autostart::MacosLauncher::LaunchAgent,
+            None,
+        ))
         .invoke_handler(tauri::generate_handler![
             convert_image,
             compress_image,
@@ -123,21 +127,62 @@ pub fn run() {
             #[cfg(windows)]
             global_drag::start(app.handle().clone());
 
+            // Liga a inicialização automática com o Windows já na primeira
+            // execução, já que é o próprio propósito do app ficar rodando
+            // em segundo plano (sem isso o gesto global do Shift/Ctrl só
+            // funciona depois de abrir manualmente). Fica disponível pra
+            // desligar a qualquer momento pelo menu da bandeja.
+            {
+                use tauri_plugin_autostart::ManagerExt;
+                let autostart = app.autolaunch();
+                if !autostart.is_enabled().unwrap_or(false) {
+                    let _ = autostart.enable();
+                }
+            }
+
+            let autostart_enabled = {
+                use tauri_plugin_autostart::ManagerExt;
+                app.autolaunch().is_enabled().unwrap_or(false)
+            };
+
             let show_item =
                 tauri::menu::MenuItem::with_id(app, "show", "Abrir arquivoX", true, None::<&str>)?;
+            let autostart_item = tauri::menu::CheckMenuItem::with_id(
+                app,
+                "autostart",
+                "Iniciar com o Windows",
+                true,
+                autostart_enabled,
+                None::<&str>,
+            )?;
             let quit_item =
                 tauri::menu::MenuItem::with_id(app, "quit", "Sair", true, None::<&str>)?;
-            let menu = tauri::menu::Menu::with_items(app, &[&show_item, &quit_item])?;
+            let menu =
+                tauri::menu::Menu::with_items(app, &[&show_item, &autostart_item, &quit_item])?;
 
+            let autostart_item_for_toggle = autostart_item.clone();
             let _tray = tauri::tray::TrayIconBuilder::new()
                 .icon(app.default_window_icon().unwrap().clone())
                 .menu(&menu)
                 .tooltip("arquivoX")
-                .on_menu_event(|app, event| match event.id.as_ref() {
+                .on_menu_event(move |app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
                             let _ = w.show();
                             let _ = w.set_focus();
+                        }
+                    }
+                    "autostart" => {
+                        use tauri_plugin_autostart::ManagerExt;
+                        let autostart = app.autolaunch();
+                        let currently_enabled = autostart.is_enabled().unwrap_or(false);
+                        let result = if currently_enabled {
+                            autostart.disable()
+                        } else {
+                            autostart.enable()
+                        };
+                        if result.is_ok() {
+                            let _ = autostart_item_for_toggle.set_checked(!currently_enabled);
                         }
                     }
                     "quit" => {

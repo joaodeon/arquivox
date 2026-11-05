@@ -68,6 +68,6 @@ Projeto em desenvolvimento ativo. Módulos já implementados:
 - [x] Gesto global (Shift/Ctrl + arrastar, em qualquer lugar do Windows)
 - [x] Ferramentas avançadas de imagem
 - [x] Conversão de planilhas
-- [ ] Empacotamento como instalador
-- [ ] Inicialização automática com o Windows
+- [x] Empacotamento como instalador
+- [x] Inicialização automática com o Windows
 - [ ] Novos módulos (vídeo/áudio, documentos)
