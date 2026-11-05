@@ -1,21 +1,28 @@
 //! Observador global (apenas Windows). A janela oculta da roda radial
-//! acompanha o cursor SOMENTE enquanto o botão esquerdo do mouse está
-//! pressionado E (Shift ou Ctrl) também está — ou seja, só durante um
-//! clique-e-arrasto real com o modificador junto, nunca por soltar o
-//! modificador sozinho depois de só clicar num arquivo. O resto do tempo a
-//! roda fica estacionada fora de qualquer monitor. Quando ela está "no ar"
-//! e o usuário arrasta um arquivo por cima, o próprio mecanismo nativo de
-//! drag-and-drop do Windows (OLE) entrega o arrasto para ela normalmente —
-//! reaproveitando a mesma lógica usada dentro do app (módulo 2).
+//! acompanha o cursor SOMENTE durante um clique-e-arrasto real: botão
+//! esquerdo do mouse pressionado, cursor efetivamente deslocado um pouco
+//! em relação a onde o botão foi pressionado, E (Shift ou Ctrl) também
+//! pressionado. O resto do tempo a roda fica estacionada fora de qualquer
+//! monitor. Quando ela está "no ar" e o usuário arrasta um arquivo por
+//! cima, o próprio mecanismo nativo de drag-and-drop do Windows (OLE)
+//! entrega o arrasto para ela normalmente — reaproveitando a mesma lógica
+//! usada dentro do app (módulo 2).
 //!
-//! O estado do botão do mouse e das teclas é obtido por CONSULTA direta
-//! (`GetAsyncKeyState`) a cada ciclo, em vez de hooks baseados em evento.
-//! Hooks de baixo nível podem perder mensagens de tecla solta — isso é
-//! especialmente comum durante um drag-and-drop do Windows, que usa
-//! Ctrl/Shift internamente para alternar entre copiar/mover, e isso deixava
-//! nosso estado interno "travado" como pressionado mesmo depois da tecla
-//! ser solta de verdade. Consultar o estado real a cada ciclo nunca fica
-//! dessincronizado, porque não depende de nenhuma notificação chegar.
+//! A exigência de deslocamento mínimo existe porque um clique parado com
+//! Ctrl ou Shift pressionado é exatamente o gesto de seleção múltipla do
+//! Explorer (Ctrl+clique, Shift+clique) — sem essa checagem, a roda surgia
+//! a cada clique de seleção, atrapalhando o próprio gesto que o usuário
+//! precisa fazer antes de arrastar vários arquivos.
+//!
+//! O estado do botão do mouse, das teclas e do cursor é obtido por
+//! CONSULTA direta (`GetAsyncKeyState`/`GetCursorPos`) a cada ciclo, em vez
+//! de hooks baseados em evento. Hooks de baixo nível podem perder
+//! mensagens de tecla solta — isso é especialmente comum durante um
+//! drag-and-drop do Windows, que usa Ctrl/Shift internamente para
+//! alternar entre copiar/mover, e isso deixava nosso estado interno
+//! "travado" como pressionado mesmo depois da tecla ser solta de verdade.
+//! Consultar o estado real a cada ciclo nunca fica dessincronizado, porque
+//! não depende de nenhuma notificação chegar.
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
@@ -64,8 +71,16 @@ fn cursor_pos() -> (i32, i32) {
     }
 }
 
+// Distância mínima (em pixels) que o cursor precisa percorrer com o botão
+// pressionado para contar como arrasto, não só um clique parado. Valor
+// próximo do que o próprio Windows usa internamente (SM_CXDRAG/SM_CYDRAG,
+// tipicamente 4px) para decidir quando um clique vira um drag de verdade.
+const DRAG_THRESHOLD_PX: i32 = 8;
+
 fn poller_thread() {
     let mut click_through_ready = false;
+    let mut was_mouse_down = false;
+    let mut down_anchor: (i32, i32) = (0, 0);
 
     loop {
         std::thread::sleep(std::time::Duration::from_millis(16));
@@ -83,7 +98,20 @@ fn poller_thread() {
 
         let shift = shift_is_down();
         let ctrl = ctrl_is_down();
-        let dragging = left_mouse_is_down();
+        let mouse_down_now = left_mouse_is_down();
+        let cursor_now = cursor_pos();
+
+        if mouse_down_now && !was_mouse_down {
+            // Botão acabou de ser pressionado: guarda a posição de
+            // referência para medir o deslocamento a partir daqui.
+            down_anchor = cursor_now;
+        }
+        was_mouse_down = mouse_down_now;
+
+        let dx = cursor_now.0 - down_anchor.0;
+        let dy = cursor_now.1 - down_anchor.1;
+        let moved_enough = dx * dx + dy * dy > DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX;
+        let dragging = mouse_down_now && moved_enough;
 
         if dragging && (shift || ctrl) {
             // Só ancora UMA VEZ por "sessão" de clique-e-arrasto com

@@ -1,6 +1,5 @@
 mod archive;
 mod image_convert;
-mod image_tools;
 mod table_convert;
 
 #[cfg(windows)]
@@ -25,26 +24,6 @@ fn convert_image(input_path: String, output_dir: String, target_format: String) 
     finish(image_convert::convert_image(&input_path, &output_dir, &target_format))
 }
 
-#[tauri::command]
-fn compress_image(input_path: String, output_dir: String) -> Result<String, String> {
-    finish(image_tools::compress_image(&input_path, &output_dir))
-}
-
-#[tauri::command]
-fn rotate_image(input_path: String, output_dir: String, clockwise: bool) -> Result<String, String> {
-    finish(image_tools::rotate_image(&input_path, &output_dir, clockwise))
-}
-
-#[tauri::command]
-fn flip_image(input_path: String, output_dir: String) -> Result<String, String> {
-    finish(image_tools::flip_image(&input_path, &output_dir))
-}
-
-#[tauri::command]
-fn strip_metadata(input_path: String, output_dir: String) -> Result<String, String> {
-    finish(image_tools::strip_metadata(&input_path, &output_dir))
-}
-
 /// Mesma ideia de `finish`, para operações que produzem mais de um
 /// arquivo de saída (compactar várias imagens de uma vez, por exemplo).
 fn finish_many(result: anyhow::Result<Vec<String>>) -> Result<Vec<String>, String> {
@@ -61,11 +40,6 @@ fn finish_many(result: anyhow::Result<Vec<String>>) -> Result<Vec<String>, Strin
 #[tauri::command]
 fn zip_files(input_paths: Vec<String>, output_dir: String) -> Result<Vec<String>, String> {
     finish_many(archive::zip_files(&input_paths, &output_dir))
-}
-
-#[tauri::command]
-fn compact_files(input_paths: Vec<String>, output_dir: String) -> Result<Vec<String>, String> {
-    finish_many(archive::compact_files(&input_paths, &output_dir))
 }
 
 /// Avisa o Shell do Windows que um arquivo novo foi criado. Sem isso,
@@ -137,15 +111,10 @@ pub fn run() {
         ))
         .invoke_handler(tauri::generate_handler![
             convert_image,
-            compress_image,
-            rotate_image,
-            flip_image,
-            strip_metadata,
             supported_image_formats,
             convert_table,
             supported_table_formats,
             zip_files,
-            compact_files,
             default_output_dir,
             wheel_dismiss
         ])
