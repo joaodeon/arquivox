@@ -211,8 +211,14 @@ mod tests {
     use super::*;
     use image::{Rgb, RgbImage};
 
-    fn make_test_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join("arquivox_test");
+    // Cada teste usa sua própria subpasta — os testes rodam em paralelo por
+    // padrão, e uma pasta fixa compartilhada entre eles causa corrida real
+    // (ex: um teste lendo "origem.png" no meio da escrita de outro,
+    // resultando em "unexpected end of file"). Mesmo ajuste já aplicado
+    // em archive.rs por esse motivo.
+    fn make_test_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("arquivox_image_test_{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
@@ -229,7 +235,7 @@ mod tests {
 
     #[test]
     fn converte_png_para_todos_os_formatos_de_imagem() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("todos_formatos");
         let src = make_test_png(&dir);
 
         for fmt in ["jpg", "webp", "tiff", "avif", "bmp"] {
@@ -243,7 +249,7 @@ mod tests {
 
     #[test]
     fn converte_png_para_pdf() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("pdf");
         let src = make_test_png(&dir);
 
         let out = convert_image(src.to_str().unwrap(), dir.to_str().unwrap(), "pdf").unwrap();
@@ -254,7 +260,7 @@ mod tests {
 
     #[test]
     fn converte_svg_para_png() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("svg");
         let svg_path = dir.join("origem.svg");
         std::fs::write(
             &svg_path,
@@ -271,7 +277,7 @@ mod tests {
 
     #[test]
     fn rejeita_heic_com_mensagem_clara() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("heic");
         let heic_path = dir.join("origem.heic");
         std::fs::write(&heic_path, b"dummy").unwrap();
 

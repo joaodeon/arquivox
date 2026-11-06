@@ -188,15 +188,19 @@ pub fn supported_target_formats() -> Vec<&'static str> {
 mod tests {
     use super::*;
 
-    fn make_test_dir() -> std::path::PathBuf {
-        let dir = std::env::temp_dir().join("arquivox_table_test");
+    // Pasta própria por teste — ver o mesmo ajuste em archive.rs e
+    // image_convert.rs, feito pelo mesmo motivo (corrida entre testes
+    // paralelos compartilhando uma pasta fixa).
+    fn make_test_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("arquivox_table_test_{name}"));
+        let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         dir
     }
 
     #[test]
     fn converte_csv_para_xlsx_e_volta() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("roundtrip");
         let csv_path = dir.join("origem.csv");
         std::fs::write(&csv_path, "nome,idade\nAna,30\nBeto,25\n").unwrap();
 
@@ -214,7 +218,7 @@ mod tests {
 
     #[test]
     fn neutraliza_formula_em_celula_vinda_de_xlsx_malicioso() {
-        let dir = make_test_dir();
+        let dir = make_test_dir("formula");
         let xlsx_path = dir.join("malicioso.xlsx");
         let mut wb = rust_xlsxwriter::Workbook::new();
         let sheet = wb.add_worksheet();
