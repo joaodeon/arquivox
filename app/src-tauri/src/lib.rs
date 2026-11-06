@@ -1,4 +1,5 @@
 mod archive;
+mod document_convert;
 mod image_convert;
 mod table_convert;
 
@@ -77,6 +78,21 @@ fn supported_table_formats() -> Vec<&'static str> {
 }
 
 #[tauri::command]
+fn convert_document(input_path: String, output_dir: String, target_format: String) -> Result<String, String> {
+    finish(document_convert::convert_document(&input_path, &output_dir, &target_format))
+}
+
+#[tauri::command]
+fn supported_document_formats() -> Vec<&'static str> {
+    document_convert::supported_target_formats()
+}
+
+#[tauri::command]
+fn document_engine_available() -> bool {
+    document_convert::is_engine_available()
+}
+
+#[tauri::command]
 fn default_output_dir(input_path: String) -> String {
     PathBuf::from(&input_path)
         .parent()
@@ -114,6 +130,9 @@ pub fn run() {
             supported_image_formats,
             convert_table,
             supported_table_formats,
+            convert_document,
+            supported_document_formats,
+            document_engine_available,
             zip_files,
             default_output_dir,
             wheel_dismiss

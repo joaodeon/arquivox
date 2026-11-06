@@ -1,0 +1,5 @@
+Relatório de exemplo
+
+Este é um documento de teste para validar a conversão entre formatos de texto no arquivoX: Word, LibreOffice Writer, PDF, RTF e texto puro.
+
+Contém acentuação (ação, café, não, público) para verificar se a codificação é preservada corretamente.

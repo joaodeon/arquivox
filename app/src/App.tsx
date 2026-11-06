@@ -3,24 +3,16 @@ import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { RadialWheel, hitTestSegment, type WheelSegment } from "./RadialWheel";
+import { ALL_PICKER_EXTS, classifyDomain, labelForFormat, type Domain } from "./formats";
 import "./App.css";
 
 type Status = "idle" | "converting" | "done" | "error";
 
-const FORMAT_LABELS: Record<string, string> = {
-  jpg: "JPG",
-  png: "PNG",
-  webp: "WebP",
-  tiff: "TIFF",
-  avif: "AVIF",
-  bmp: "BMP",
-  pdf: "PDF",
-};
-
 function App() {
-  const [formats, setFormats] = useState<string[]>([]);
+  const [, forceRender] = useState(0);
+  const [domain, setDomain] = useState<Domain>(null);
   const [filePath, setFilePath] = useState<string | null>(null);
-  const [target, setTarget] = useState<string>("png");
+  const [target, setTarget] = useState<string | null>(null);
   const [outputDir, setOutputDir] = useState<string | null>(null);
   const [status, setStatus] = useState<Status>("idle");
   const [message, setMessage] = useState<string>("");
@@ -32,13 +24,34 @@ function App() {
   const unlistenRef = useRef<(() => void) | undefined>(undefined);
   const anchorRef = useRef<{ x: number; y: number } | null>(null);
   const highlightRef = useRef<string | null>(null);
-  const formatsRef = useRef<string[]>([]);
-  const outputDirRef = useRef<string | null>(null);
+  const domainRef = useRef<Domain>(null);
+  const imageFormatsRef = useRef<string[]>([]);
+  const tableFormatsRef = useRef<string[]>([]);
+  const documentFormatsRef = useRef<string[]>([]);
+
+  function formatsFor(dom: Domain): string[] {
+    if (dom === "table") return tableFormatsRef.current;
+    if (dom === "document") return documentFormatsRef.current;
+    if (dom === "image") return imageFormatsRef.current;
+    return [];
+  }
+
+  function segmentsFor(dom: Domain): WheelSegment[] {
+    return formatsFor(dom).map((f) => ({ id: f, label: labelForFormat(dom, f) }));
+  }
 
   useEffect(() => {
     invoke<string[]>("supported_image_formats").then((f) => {
-      setFormats(f);
-      formatsRef.current = f;
+      imageFormatsRef.current = f;
+      forceRender((n) => n + 1);
+    });
+    invoke<string[]>("supported_table_formats").then((f) => {
+      tableFormatsRef.current = f;
+      forceRender((n) => n + 1);
+    });
+    invoke<string[]>("supported_document_formats").then((f) => {
+      documentFormatsRef.current = f;
+      forceRender((n) => n + 1);
     });
 
     const scale = window.devicePixelRatio || 1;
@@ -54,11 +67,15 @@ function App() {
           setWheelVisible(true);
           setWheelHighlight(null);
           highlightRef.current = null;
+
+          const dom = payload.paths[0] ? classifyDomain(payload.paths[0]) : null;
+          domainRef.current = dom;
+          setDomain(dom);
         } else if (payload.type === "over") {
           if (anchorRef.current) {
             const dx = payload.position.x / scale - anchorRef.current.x;
             const dy = payload.position.y / scale - anchorRef.current.y;
-            const segments = wheelSegments(formatsRef.current);
+            const segments = segmentsFor(domainRef.current);
             const hit = hitTestSegment(dx, dy, segments);
             highlightRef.current = hit;
             setWheelHighlight(hit);
@@ -80,7 +97,7 @@ function App() {
 
           handleNewFile(path).then((dir) => {
             if (chosenFormat && dir) {
-              runConversion(path, dir, chosenFormat);
+              runConversion(path, dir, chosenFormat, domainRef.current);
             }
           });
         }
@@ -94,16 +111,12 @@ function App() {
     };
   }, []);
 
-  useEffect(() => {
-    outputDirRef.current = outputDir;
-  }, [outputDir]);
-
-  function wheelSegments(fmts: string[]): WheelSegment[] {
-    return fmts.map((f) => ({ id: f, label: FORMAT_LABELS[f] ?? f.toUpperCase() }));
-  }
-
   async function handleNewFile(path: string): Promise<string | null> {
+    const dom = classifyDomain(path);
+    domainRef.current = dom;
+    setDomain(dom);
     setFilePath(path);
+    setTarget(null);
     setStatus("idle");
     setMessage("");
     const dir = await invoke<string>("default_output_dir", { inputPath: path });
@@ -111,11 +124,17 @@ function App() {
     return dir;
   }
 
-  async function runConversion(inputPath: string, dir: string, targetFormat: string) {
+  async function runConversion(inputPath: string, dir: string, targetFormat: string, activeDomain: Domain) {
     setStatus("converting");
     setMessage("");
     try {
-      const resultPath = await invoke<string>("convert_image", {
+      const command =
+        activeDomain === "table"
+          ? "convert_table"
+          : activeDomain === "document"
+            ? "convert_document"
+            : "convert_image";
+      const resultPath = await invoke<string>(command, {
         inputPath,
         outputDir: dir,
         targetFormat,
@@ -134,8 +153,8 @@ function App() {
       multiple: false,
       filters: [
         {
-          name: "Imagens",
-          extensions: ["jpg", "jpeg", "png", "webp", "tiff", "tif", "avif", "bmp", "svg"],
+          name: "Arquivos suportados",
+          extensions: ALL_PICKER_EXTS,
         },
       ],
     });
@@ -152,21 +171,18 @@ function App() {
   }
 
   async function handleConvert() {
-    if (!filePath || !outputDir) return;
-    runConversion(filePath, outputDir, target);
+    if (!filePath || !outputDir || !target) return;
+    runConversion(filePath, outputDir, target, domain);
   }
 
   const fileName = filePath ? filePath.split(/[\\/]/).pop() : null;
-  const segments = wheelSegments(formats);
-  const highlightedLabel = wheelHighlight
-    ? FORMAT_LABELS[wheelHighlight] ?? wheelHighlight.toUpperCase()
-    : "solte aqui";
+  const formats = domain ? formatsFor(domain) : [];
+  const segments = domain ? segmentsFor(domain) : [];
+  const highlightedLabel = wheelHighlight ? labelForFormat(domain, wheelHighlight) : "solte aqui";
 
   return (
     <main className="h-full flex flex-col items-center justify-center gap-6 px-8 py-10 select-none relative">
-      <h1 className="text-xl font-medium tracking-tight text-neutral-800">
-        Conversor de imagens
-      </h1>
+      <h1 className="text-xl font-medium tracking-tight text-neutral-800">arquivoX</h1>
 
       <div className="w-full max-w-sm rounded-2xl border-2 border-dashed border-neutral-200 bg-white hover:border-neutral-300 transition-colors cursor-pointer flex flex-col items-center justify-center gap-2 py-12 px-6 text-center"
         onClick={handlePickFile}
@@ -179,34 +195,42 @@ function App() {
         ) : (
           <>
             <span className="text-sm text-neutral-500">
-              Arraste uma imagem para a janela ou clique para escolher
+              Arraste um arquivo para a janela ou clique para escolher
             </span>
             <span className="text-xs text-neutral-400">
-              JPG · PNG · WebP · TIFF · AVIF · BMP · SVG
+              Imagens · Planilhas · Documentos de texto
             </span>
           </>
         )}
       </div>
 
-      <div className="w-full max-w-sm flex flex-col gap-3">
-        <label className="text-xs uppercase tracking-wide text-neutral-400">
-          Converter para
-        </label>
-        <div className="grid grid-cols-4 gap-2">
-          {formats.map((f) => (
-            <button
-              key={f}
-              onClick={() => setTarget(f)}
-              className={`rounded-xl py-2 text-sm font-medium transition-colors
-                ${target === f
-                  ? "bg-accent text-white"
-                  : "bg-white text-neutral-600 border border-neutral-200 hover:border-neutral-300"}`}
-            >
-              {FORMAT_LABELS[f] ?? f.toUpperCase()}
-            </button>
-          ))}
+      {filePath && formats.length > 0 && (
+        <div className="w-full max-w-sm flex flex-col gap-3">
+          <label className="text-xs uppercase tracking-wide text-neutral-400">
+            Converter para
+          </label>
+          <div className="grid grid-cols-4 gap-2">
+            {formats.map((f) => (
+              <button
+                key={f}
+                onClick={() => setTarget(f)}
+                className={`rounded-xl py-2 text-sm font-medium transition-colors
+                  ${target === f
+                    ? "bg-accent text-white"
+                    : "bg-white text-neutral-600 border border-neutral-200 hover:border-neutral-300"}`}
+              >
+                {labelForFormat(domain, f)}
+              </button>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {filePath && !domain && (
+        <p className="text-xs text-neutral-400 max-w-sm text-center">
+          Tipo de arquivo não reconhecido para conversão.
+        </p>
+      )}
 
       <div className="w-full max-w-sm flex items-center justify-between text-xs text-neutral-400">
         <span className="truncate">{outputDir ?? "pasta de destino não escolhida"}</span>
@@ -217,7 +241,7 @@ function App() {
 
       <button
         onClick={handleConvert}
-        disabled={!filePath || !outputDir || status === "converting"}
+        disabled={!filePath || !outputDir || !target || status === "converting"}
         className="w-full max-w-sm rounded-xl bg-accent hover:bg-accent-hover disabled:opacity-40
           disabled:cursor-not-allowed text-white font-medium py-3 transition-colors
           flex items-center justify-center gap-2"

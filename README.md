@@ -26,6 +26,9 @@ JPG, PNG, WebP, TIFF, AVIF, BMP, PDF (saída) e SVG (entrada), com conversão en
 **Conversão de planilhas** (Shift)
 CSV, TSV, XLSX, XLS, XLSB e ODS como entrada; CSV e XLSX como saída. Células que começam com `=`, `+`, `-` ou `@` na origem são neutralizadas ao exportar para CSV, para não virarem fórmulas executáveis ao reabrir no Excel (proteção contra planilhas de fontes externas).
 
+**Conversão de documentos de texto** (Shift)
+DOCX, DOC, ODT, RTF, TXT, PDF e Markdown (.md), convertendo entre si (PDF só como destino — ver limitações abaixo). Usa o LibreOffice instalado na máquina como motor, já que não existe biblioteca Rust que preserve formatação sem depender de um programa externo; sem o LibreOffice instalado, essa conversão falha com um aviso claro em vez de travar ou gerar um arquivo quebrado. Duas limitações verificadas na prática: PDF como *origem* não é oferecido (a importação corrompe acentuação e duplica conteúdo nesta versão do LibreOffice), e Markdown só converte de/para TXT (o filtro de formatação do LibreOffice para `.md` não funciona de forma confiável).
+
 **Compactação ZIP** (Ctrl)
 Compacta um ou vários arquivos selecionados — de qualquer tipo — em um único `.zip`, nomeado com a data e hora da compactação (`Compactado_2026-11-05_14-56-38.zip`). Implementado de forma 100% nativa, sem depender de 7-Zip, WinRAR ou qualquer outro programa instalado na máquina.
 
@@ -42,6 +45,7 @@ Nenhum arquivo, nome de arquivo ou metadado sai da máquina em nenhuma etapa. To
 Alguns cenários onde esse tipo de ferramenta pode ajudar no dia a dia de um órgão público:
 
 - **Digitalização e protocolo**: converter imagens escaneadas (JPG/PNG) para PDF antes de anexar a processos (ex: SEI), sem depender de scanner com saída direta em PDF.
+- **Documentos legados**: converter um `.doc` antigo para `.docx`, ou qualquer documento de texto para PDF antes de protocolar, sem precisar abrir o Word/LibreOffice manualmente.
 - **Anexos com limite de tamanho**: muitos sistemas de protocolo eletrônico têm limite por arquivo — compactar vários documentos em um único `.zip` antes de anexar reduz o tamanho total e evita retrabalho.
 - **Interoperabilidade de planilhas**: converter exportações de sistemas legados (CSV) para XLSX para análise em Excel, ou o caminho inverso para importação em outros sistemas.
 - **Publicação institucional**: converter imagens para os formatos usados em sites, intranet ou materiais de comunicação.
@@ -78,6 +82,7 @@ Requer Rust (toolchain MSVC) e Node.js instalados.
 - **Backend**: Rust + [Tauri 2](https://tauri.app/)
   - Conversão de imagem: `image`, `resvg` (SVG), `printpdf` (PDF)
   - Conversão de planilha: `calamine` (leitura), `rust_xlsxwriter` (escrita XLSX), `csv`
+  - Conversão de documentos: LibreOffice instalado na máquina, chamado via `std::process::Command` em modo headless (única dependência externa opcional do projeto — as demais conversões são 100% nativas)
   - Compactação: `zip`, com nomes de arquivo gerados via `chrono`
   - Observador de teclado/mouse nativo do Windows (`windows-rs`, consulta direta de estado em vez de hooks de evento) para o gesto global de arrastar-e-soltar em qualquer lugar do sistema
   - `tauri-plugin-single-instance`, `tauri-plugin-autostart`, `tauri-plugin-dialog`
@@ -89,10 +94,11 @@ Projeto em desenvolvimento ativo. Módulos já implementados:
 
 - [x] Conversão de imagens
 - [x] Conversão de planilhas
+- [x] Conversão de documentos de texto (requer LibreOffice instalado)
 - [x] Compactação ZIP (um ou vários arquivos)
 - [x] Roda radial (interface de seleção por gesto)
 - [x] Gesto global (Shift/Ctrl + arrastar, em qualquer lugar do Windows)
 - [x] Execução em segundo plano, inicialização automática, instância única
 - [x] Empacotamento como instalador
 - [x] Revisão de segurança
-- [ ] Novos módulos (vídeo/áudio, documentos)
+- [ ] Novos módulos (vídeo/áudio)
