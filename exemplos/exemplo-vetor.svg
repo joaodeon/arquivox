@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="320" height="200" viewBox="0 0 320 200">
+  <rect width="320" height="200" fill="#f5f5f7"/>
+  <circle cx="160" cy="100" r="70" fill="#9400D3"/>
+  <text x="160" y="106" text-anchor="middle" font-family="sans-serif" font-size="20" fill="#ffffff">arquivoX</text>
+</svg>
