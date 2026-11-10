@@ -132,7 +132,7 @@ mod tests {
 
         // Confirma que é mesmo um ZIP válido contendo os dois arquivos.
         let file = File::open(&outputs[0]).unwrap();
-        let mut archive = zip::ZipArchive::new(file).unwrap();
+        let archive = zip::ZipArchive::new(file).unwrap();
         assert_eq!(archive.len(), 2);
     }
 
