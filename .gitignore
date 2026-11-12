@@ -4,6 +4,7 @@ app/dist
 app/dist-ssr
 app/src-tauri/target
 app/src-tauri/gen
+docs/apresentacao/node_modules
 
 # Claude Code (estado local de sessão)
 .claude
