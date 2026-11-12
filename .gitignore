@@ -5,6 +5,8 @@ app/dist-ssr
 app/src-tauri/target
 app/src-tauri/gen
 docs/apresentacao/node_modules
+# Gerado por docs/apresentacao (o PDF é a versão publicada)
+apresentacao-arquivoX.pptx
 
 # Claude Code (estado local de sessão)
 .claude
